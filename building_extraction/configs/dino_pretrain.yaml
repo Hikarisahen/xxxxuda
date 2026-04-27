@@ -1,0 +1,22 @@
+model:
+  name: "dinov2_vitb14"
+  feature_dim: 768
+  image_size: 224
+
+data:
+  train_image_dir: "data/train_images"
+  val_image_dir: "data/val_images"
+  cache_dir: "cache/dino_features"
+
+training:
+  epochs: 25
+  batch_size: 32
+  num_workers: 4
+  lr: 1e-4
+  weight_decay: 0.05
+  warmup_epochs: 2
+  cosine_scheduler: true
+
+output:
+  checkpoint_dir: "checkpoints/dino"
+  log_dir: "logs/dino"

@@ -1,0 +1,44 @@
+# Detectron2 Cascade Mask R-CNN Config for Building Instance Segmentation
+# Using model zoo base + custom overrides
+
+VERSION: 2
+
+MODEL:
+  MASK_ON: True
+
+  ROI_HEADS:
+    NUM_CLASSES: 1
+
+DATASETS:
+  TRAIN: ("vaihingen_train",)
+  TEST: ("vaihingen_val",)
+
+SOLVER:
+  IMS_PER_BATCH: 8
+  BASE_LR: 0.0001
+  WEIGHT_DECAY: 0.05
+  MAX_ITER: 90000
+  STEPS: (60000, 80000)
+
+  LR_SCHEDULER_NAME: "WarmupMultiStepLR"
+  WARMUP_FACTOR: 0.001
+  WARMUP_ITERS: 1000
+  WARMUP_METHOD: "linear"
+
+  CHECKPOINT_PERIOD: 5000
+
+TEST:
+  EVAL_PERIOD: 5000
+  DETECTIONS_PER_IMAGE: 100
+
+INPUT:
+  MIN_SIZE_TRAIN: (512, 768, 1024, 1280, 1536)
+  MAX_SIZE_TRAIN: 2048
+  MIN_SIZE_TEST: 1024
+  MAX_SIZE_TEST: 2048
+
+DATALOADER:
+  NUM_WORKERS: 4
+
+OUTPUT_DIR: "output/detectron2"
+SEED: 42

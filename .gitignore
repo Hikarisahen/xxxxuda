@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+
+# Virtual environments
+venv/
+ENV/
+.venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# PyTorch & ML models
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.h5
+*.pkl
+*.pickle
+
+# Model checkpoints
+checkpoints/
+*.pth.tar
+
+# Output & predictions
+output/
+val_predictions/
+logs/
+*.log
+
+# Data (large files)
+data/raw/
+data/processed/
+*.tif
+*.tiff
+*.png
+*.jpg
+*.jpeg
+
+# Configs - uncomment if you want to track configs
+# configs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Misc
+*.bak
+*.tmp

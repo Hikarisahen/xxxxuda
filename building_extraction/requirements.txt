@@ -1,0 +1,13 @@
+torch>=2.0.0
+torchvision>=0.15.0
+dinov2
+segmentation-models-pytorch>=0.3.0
+segment-anything
+timm>=0.9.0
+albumentations>=1.3.0
+pyyaml>=6.0
+tqdm>=4.65.0
+Pillow>=9.0.0
+numpy>=1.24.0
+opencv-python>=4.7.0
+tensorboard>=2.13.0

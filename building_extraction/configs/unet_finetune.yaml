@@ -1,0 +1,39 @@
+model:
+  name: "unet_dino"
+  encoder_name: "tu-base"
+  encoder_weights: null
+  in_channels: 3
+  num_classes: 1
+
+data:
+  train_images: "data/train_images"
+  train_masks: "data/pseudo_labels"
+  val_images: "data/val_images"
+  val_masks: "data/pseudo_labels_val"
+  image_size: 512
+  patch_size: 512
+
+training:
+  epochs: 50
+  batch_size: 16
+  num_workers: 4
+  lr: 1e-4
+  weight_decay: 0.01
+  scheduler: "cosine"
+  warmup_ratio: 0.1
+
+loss:
+  dice_weight: 1.0
+  bce_weight: 1.0
+
+augmentation:
+  horizontal_flip: 0.5
+  vertical_flip: 0.5
+  rotation_degrees: 15
+  scale_range: [0.8, 1.2]
+  brightness_limit: 0.1
+  contrast_limit: 0.1
+
+output:
+  checkpoint_dir: "checkpoints/unet"
+  log_dir: "logs/unet"

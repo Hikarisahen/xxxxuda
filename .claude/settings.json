@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(python -c \"import albumentations; print\\(albumentations.__version__\\)\")",
+      "Bash(python -c \"import mmdet; print\\('mmdetection installed:', mmdet.__version__\\)\")",
+      "Bash(pip install *)",
+      "Bash(conda env *)",
+      "Bash(/home/zfx/miniconda3/envs/sam/bin/python --version)",
+      "Bash(/home/zfx/miniconda3/envs/mmdet/bin/python --version)",
+      "Bash(/home/zfx/miniconda3/envs/sam/bin/python -c \"import torch; import segment_anything; import ultralytics; print\\('SAM env packages OK'\\)\")",
+      "Bash(/home/zfx/miniconda3/envs/mmdet/bin/python -c \"import torch; import mmdet; print\\('mmdet env OK'\\)\")",
+      "Bash(/home/zfx/miniconda3/envs/mmdet/bin/python -c \"import segment_anything; print\\('SAM in mmdet env'\\)\")",
+      "Bash(/home/zfx/miniconda3/envs/sam/bin/pip list *)",
+      "Read(//home/zfx/datasets/**)",
+      "Bash(python src/data/convert_vaihingen_to_coco.py --image-dir /home/zfx/datasets/Vaihingen_croped/train/Images --mask-dir /home/zfx/datasets/Vaihingen_croped/train/Labels --output annotations/vaihingen_coco.json)",
+      "Bash(python scripts/train_detectron2.py --train-annotation-file annotations/vaihingen_train_coco.json --val-annotation-file annotations/vaihingen_val_coco.json --output-dir output/detectron2 --max-iter 1000 --eval-period 500)",
+      "Bash(python -c \"import torch; print\\(torch.__version__\\)\")"
+    ]
+  }
+}
