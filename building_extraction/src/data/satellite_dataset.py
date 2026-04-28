@@ -67,7 +67,15 @@ class SatellitePatchDataset(Dataset):
             mask = torch.zeros(1, self.image_size, self.image_size)
 
         if isinstance(mask, np.ndarray):
-            mask = torch.from_numpy(mask).unsqueeze(0)
+            mask = torch.from_numpy(mask)
+
+        # Ensure [1, H, W] regardless of whether ToTensorV2 / numpy path was taken,
+        # and that dtype is float for BCE-style losses.
+        if mask.dim() == 2:
+            mask = mask.unsqueeze(0)
+        mask = mask.float()
+        if mask.max() > 1.5:        # if it came in as 0/255, normalise to 0/1
+            mask = mask / 255.0
 
         return image, mask
 
