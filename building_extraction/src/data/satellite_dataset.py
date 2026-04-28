@@ -42,17 +42,27 @@ class SatellitePatchDataset(Dataset):
         mask = None
 
         if self.mask_dir and os.path.exists(self.mask_dir):
-            mask_name = os.path.basename(image_path)
-            mask_name = mask_name.replace(".tif", f"{self.mask_suffix}.tif")
-            mask_name = mask_name.replace(".png", f"{self.mask_suffix}.png")
-            mask_name = mask_name.replace(".jpg", f"{self.mask_suffix}.jpg")
-            mask_path = os.path.join(self.mask_dir, mask_name)
+            stem = os.path.splitext(os.path.basename(image_path))[0]
+            # Look up <stem>_mask.<ext> regardless of which ext was used when
+            # the masks were written. Previously this hard-coded the image's
+            # own extension, so e.g. .tif images silently fell back to all-zero
+            # masks when masks had been saved as .png — undetectable, ruinous.
+            mask_path = None
+            for ext in (".png", ".tif", ".tiff", ".jpg", ".jpeg"):
+                candidate = os.path.join(self.mask_dir, f"{stem}{self.mask_suffix}{ext}")
+                if os.path.exists(candidate):
+                    mask_path = candidate
+                    break
 
-            if os.path.exists(mask_path):
+            if mask_path is not None:
                 mask = np.array(Image.open(mask_path).convert("L"))
                 mask = (mask > 127).astype(np.float32)
             else:
-                mask = np.zeros((image.shape[0], image.shape[1]), dtype=np.float32)
+                raise FileNotFoundError(
+                    f"No mask found for {image_path} under {self.mask_dir} "
+                    f"(looked for {stem}{self.mask_suffix}.{{png,tif,jpg}}). "
+                    f"Refusing to silently substitute an empty mask."
+                )
 
         if self.transform:
             if mask is not None:
