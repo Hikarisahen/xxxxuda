@@ -1,9 +1,13 @@
 model:
-  name: "unet_dino"
-  encoder_name: "tu-base"
-  encoder_weights: null
-  in_channels: 3
+  # "smp_unet" -> SMP U-Net with a strong ImageNet-pretrained encoder.
+  # "dinov2_unet" -> DINOv2 ViT encoder + custom multi-scale decoder.
+  arch: "smp_unet"
+  encoder_name: "tu-convnext_base"   # strong + reasonable VRAM
+  encoder_weights: "imagenet"
   num_classes: 1
+  # Used only when arch == dinov2_unet:
+  dino_model_name: "dinov2_vitb14"
+  dino_freeze: true                  # set false to fine-tune the ViT (≫VRAM)
 
 data:
   train_images: "data/train_images"
@@ -17,14 +21,17 @@ training:
   epochs: 50
   batch_size: 16
   num_workers: 4
-  lr: 1e-4
+  lr: 1.0e-4
   weight_decay: 0.01
   scheduler: "cosine"
   warmup_ratio: 0.1
 
 loss:
+  # Composite loss tuned for sharp building contours.
   dice_weight: 1.0
   bce_weight: 1.0
+  boundary_weight: 1.0
+  boundary_dilation: 3
 
 augmentation:
   horizontal_flip: 0.5

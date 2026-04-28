@@ -50,8 +50,7 @@ def main():
         print("Stage 1: DINOv2 Self-Supervised Pre-training")
         print("=" * 60)
         from src.training.pretrain_dino import main as train_dino
-        sys.argv = ["pretrain_dino.py", "--config", args.dino_config]
-        train_dino()
+        train_dino(argparse.Namespace(config=args.dino_config))
 
     elif args.stage == "pseudo":
         print("=" * 60)
@@ -88,9 +87,11 @@ def main():
         print("Stage 3: U-Net Fine-tuning with Pseudo Labels")
         print("=" * 60)
         from src.training.finetune_unet import main as train_unet
-        sys.argv = ["finetune_unet.py", "--config", args.config,
-                    "--dino-checkpoint", args.dino_checkpoint or ""]
-        train_unet()
+        train_unet(argparse.Namespace(
+            config=args.config,
+            pretrained_ckpt=None,
+            dino_adapted_ckpt=args.dino_checkpoint,
+        ))
 
     elif args.stage == "predict":
         print("=" * 60)
@@ -107,11 +108,10 @@ def main():
         print("=" * 60)
 
         if not args.dino_checkpoint:
-            print("\n[1/4] DINOv2 Pre-training...")
+            print("\n[1/4] DINOv2 Domain-Adaptive Pre-training...")
             from src.training.pretrain_dino import main as train_dino
-            sys.argv = ["pretrain_dino.py", "--config", args.dino_config]
-            train_dino()
-            args.dino_checkpoint = "checkpoints/dino/best_dino.pt"
+            train_dino(argparse.Namespace(config=args.dino_config))
+            args.dino_checkpoint = "checkpoints/dino/dino_adapted.pt"
         else:
             print(f"[1/4] Skipping pretrain (using {args.dino_checkpoint})")
 
@@ -129,9 +129,11 @@ def main():
 
         print("\n[3/4] U-Net Fine-tuning...")
         from src.training.finetune_unet import main as train_unet
-        sys.argv = ["finetune_unet.py", "--config", args.config,
-                    "--dino-checkpoint", args.dino_checkpoint or ""]
-        train_unet()
+        train_unet(argparse.Namespace(
+            config=args.config,
+            pretrained_ckpt=None,
+            dino_adapted_ckpt=args.dino_checkpoint,
+        ))
 
         print("\n[4/4] Inference...")
         from src.inference.predict import main as predict

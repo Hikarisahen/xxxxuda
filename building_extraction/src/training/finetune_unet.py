@@ -15,30 +15,10 @@ from tqdm import tqdm
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from src.models.building_model import BuildingSegmentor, build_building_model
+from src.models.building_model import build_building_model
 from src.data.satellite_dataset import SatellitePatchDataset
 from src.data.augmentations import get_building_augmentations
-from src.training.metrics import DiceScore, IoU, F1Score
-
-
-class DiceBCELoss(nn.Module):
-    def __init__(self, dice_weight=1.0, bce_weight=1.0):
-        super().__init__()
-        self.dice_weight = dice_weight
-        self.bce_weight = bce_weight
-        self.bce = nn.BCEWithLogitsLoss()
-
-    def forward(self, pred, target):
-        bce_loss = self.bce(pred, target)
-
-        pred_sigmoid = torch.sigmoid(pred)
-        smooth = 1e-5
-        intersection = (pred_sigmoid * target).sum(dim=(2, 3))
-        union = pred_sigmoid.sum(dim=(2, 3)) + target.sum(dim=(2, 3))
-        dice = (2 * intersection + smooth) / (union + smooth)
-        dice_loss = 1 - dice.mean()
-
-        return self.bce_weight * bce_loss + self.dice_weight * dice_loss
+from src.training.metrics import DiceScore, IoU, F1Score, DiceBCEBoundaryLoss
 
 
 class Trainer:
@@ -49,9 +29,12 @@ class Trainer:
         self.config = config
         self.device = device
 
-        self.criterion = DiceBCELoss(
-            dice_weight=config["loss"]["dice_weight"],
-            bce_weight=config["loss"]["bce_weight"],
+        loss_cfg = config["loss"]
+        self.criterion = DiceBCEBoundaryLoss(
+            dice_weight=loss_cfg.get("dice_weight", 1.0),
+            bce_weight=loss_cfg.get("bce_weight", 1.0),
+            boundary_weight=loss_cfg.get("boundary_weight", 1.0),
+            boundary_dilation=loss_cfg.get("boundary_dilation", 3),
         )
 
         self.optimizer = optim.AdamW(
@@ -198,9 +181,14 @@ def main(args):
     print(f"Using device: {device}")
 
     model = build_building_model(
-        dino_checkpoint=args.dino_checkpoint,
-        encoder_name=config["model"]["encoder_name"],
-        num_classes=config["model"]["num_classes"],
+        arch=config["model"].get("arch", "smp_unet"),
+        encoder_name=config["model"].get("encoder_name", "tu-convnext_base"),
+        encoder_weights=config["model"].get("encoder_weights", "imagenet"),
+        num_classes=config["model"].get("num_classes", 1),
+        dino_model_name=config["model"].get("dino_model_name", "dinov2_vitb14"),
+        dino_freeze=config["model"].get("dino_freeze", True),
+        dino_adapted_ckpt=args.dino_adapted_ckpt,
+        pretrained_segmentor_ckpt=args.pretrained_ckpt,
     )
 
     print(f"Model loaded, parameters: {sum(p.numel() for p in model.parameters())/1e6:.2f}M")
@@ -247,7 +235,11 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fine-tune U-Net for building extraction")
     parser.add_argument("--config", type=str, default="configs/unet_finetune.yaml", help="Path to config file")
-    parser.add_argument("--dino-checkpoint", type=str, default=None, help="Path to DINOv2 checkpoint")
+    parser.add_argument("--pretrained-ckpt", type=str, default=None,
+                        help="Optional segmentor checkpoint to warm-start from (same arch).")
+    parser.add_argument("--dino-adapted-ckpt", type=str, default=None,
+                        help="Optional domain-adapted DINOv2 backbone (from pretrain_dino.py). "
+                             "Only used when arch == dinov2_unet.")
 
     args = parser.parse_args()
     main(args)
