@@ -55,7 +55,7 @@ class TwoCropPatchDataset(Dataset):
             + sorted(glob.glob(os.path.join(image_dir, "*.jpg")))
         )
         self.tf = A.Compose([
-            A.RandomResizedCrop(image_size, image_size, scale=(0.4, 1.0)),
+            A.RandomResizedCrop(size=(image_size, image_size), scale=(0.4, 1.0)),
             A.HorizontalFlip(p=0.5),
             A.VerticalFlip(p=0.5),
             A.RandomRotate90(p=0.5),

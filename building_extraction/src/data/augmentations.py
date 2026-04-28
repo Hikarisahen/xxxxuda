@@ -12,7 +12,7 @@ def get_building_augmentations(mode: str = "train", image_size: int = 512):
     """
     if mode == "train":
         return A.Compose([
-            A.RandomResizedCrop(height=image_size, width=image_size, scale=(0.8, 1.0)),
+            A.RandomResizedCrop(size=(image_size, image_size), scale=(0.8, 1.0)),
             A.HorizontalFlip(p=0.5),
             A.VerticalFlip(p=0.5),
             A.Rotate(limit=15, p=0.5),

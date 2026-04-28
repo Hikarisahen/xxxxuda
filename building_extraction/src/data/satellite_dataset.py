@@ -74,7 +74,7 @@ class SatellitePatchDataset(Dataset):
 
 def get_train_transforms(image_size: int = 512):
     return A.Compose([
-        A.RandomResizedCrop(image_size, image_size, scale=(0.8, 1.0)),
+        A.RandomResizedCrop(size=(image_size, image_size), scale=(0.8, 1.0)),
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.5),
         A.Rotate(limit=15, p=0.5),
@@ -86,7 +86,7 @@ def get_train_transforms(image_size: int = 512):
 
 def get_val_transforms(image_size: int = 512):
     return A.Compose([
-        A.Resize(image_size, image_size),
+        A.Resize(height=image_size, width=image_size),
         A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ToTensorV2(),
     ])
