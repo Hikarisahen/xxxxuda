@@ -27,8 +27,18 @@ from PIL import Image
 from tqdm import tqdm
 
 
+def _index_image_root(image_root: Path) -> dict:
+    """Build a {basename: full_path} index by walking the image root once."""
+    exts = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+    idx: dict[str, Path] = {}
+    for p in image_root.rglob("*"):
+        if p.is_file() and p.suffix.lower() in exts:
+            idx.setdefault(p.name, p)
+    return idx
+
+
 def rasterise_split(coco_path: Path, image_root: Path, out_images: Path,
-                    out_masks: Path, copy_images: bool) -> None:
+                    out_masks: Path, copy_images: bool, name_index: dict) -> None:
     out_images.mkdir(parents=True, exist_ok=True)
     out_masks.mkdir(parents=True, exist_ok=True)
 
@@ -45,11 +55,9 @@ def rasterise_split(coco_path: Path, image_root: Path, out_images: Path,
         file_name = img_info["file_name"]
         h, w = img_info["height"], img_info["width"]
 
-        src = image_root / file_name
-        if not src.exists():
-            # try basename match in case file_name has subdirs
-            src = image_root / Path(file_name).name
-        if not src.exists():
+        # Look it up in the basename index (handles arbitrary subdir layouts).
+        src = name_index.get(Path(file_name).name)
+        if src is None or not src.exists():
             skipped += 1
             continue
 
@@ -91,14 +99,18 @@ def main():
                    help="Copy images instead of symlinking (use on Windows w/o admin).")
     args = p.parse_args()
 
+    print(f"Indexing images under {args.image_root} ...")
+    name_index = _index_image_root(args.image_root)
+    print(f"  found {len(name_index)} unique image filenames")
+
     rasterise_split(args.train_json, args.image_root,
                     args.out_root / "train_images",
                     args.out_root / "pseudo_labels",   # finetune yaml's train_masks key
-                    args.copy)
+                    args.copy, name_index)
     rasterise_split(args.val_json, args.image_root,
                     args.out_root / "val_images",
                     args.out_root / "pseudo_labels_val",
-                    args.copy)
+                    args.copy, name_index)
     print(f"Done. Layout written under {args.out_root.resolve()}")
 
 
