@@ -18,19 +18,22 @@ data:
   patch_size: 512
 
 training:
-  epochs: 50
+  epochs: 30
   batch_size: 16
   num_workers: 4
-  lr: 1.0e-4
+  lr: 5.0e-5         # was 1e-4 — too aggressive; loss flat-lined at 1.06
   weight_decay: 0.01
   scheduler: "cosine"
   warmup_ratio: 0.1
 
 loss:
   # Composite loss tuned for sharp building contours.
+  # Note: with high positive ratio (~70% in dense Vaihingen tiles), boundary
+  # weight 1.0 caused the model to learn only edge probabilities and collapse
+  # interior. Keep it small until interior is solid, then ramp if needed.
   dice_weight: 1.0
   bce_weight: 1.0
-  boundary_weight: 1.0
+  boundary_weight: 0.3
   boundary_dilation: 3
 
 augmentation:

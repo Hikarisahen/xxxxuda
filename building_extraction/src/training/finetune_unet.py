@@ -1,5 +1,6 @@
 import os
 import sys
+import math
 import argparse
 from pathlib import Path
 from datetime import datetime
@@ -43,12 +44,20 @@ class Trainer:
             weight_decay=config["training"]["weight_decay"],
         )
 
+        # Single warmup-then-cosine over the full training run.
+        # The previous CosineAnnealingWarmRestarts(T_0=len_loader, T_mult=2) reset
+        # LR back to peak every single epoch, which is why loss never actually
+        # converged — it just oscillated around the init.
         total_steps = len(train_loader) * config["training"]["epochs"]
-        warmup_steps = int(total_steps * config["training"].get("warmup_ratio", 0.1))
+        warmup_steps = max(1, int(total_steps * config["training"].get("warmup_ratio", 0.1)))
 
-        self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.optimizer, T_0=len(train_loader), T_mult=2
-        )
+        def lr_lambda(step: int) -> float:
+            if step < warmup_steps:
+                return step / warmup_steps
+            progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+            return 0.5 * (1.0 + math.cos(math.pi * progress))
+
+        self.scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda)
 
         self.best_dice = 0
         os.makedirs(config["output"]["checkpoint_dir"], exist_ok=True)
@@ -102,6 +111,11 @@ class Trainer:
         total_dice = 0
         total_iou = 0
         total_f1 = 0
+        # Output-distribution diagnostics: catch silent collapse early.
+        prob_sum = 0.0
+        prob_max_sum = 0.0
+        target_pos_ratio_sum = 0.0
+        pred_pos_ratio_sum = 0.0
 
         for images, masks in tqdm(self.val_loader, desc="Validation"):
             images = images.to(self.device)
@@ -112,7 +126,8 @@ class Trainer:
 
             total_loss += loss.item()
 
-            pred_mask = (torch.sigmoid(outputs) > 0.5).float()
+            prob = torch.sigmoid(outputs)
+            pred_mask = (prob > 0.5).float()
             dice = DiceScore(pred_mask, masks)
             iou = IoU(pred_mask, masks)
             f1 = F1Score(pred_mask, masks)
@@ -121,15 +136,35 @@ class Trainer:
             total_iou += iou.item()
             total_f1 += f1.item()
 
-        avg_loss = total_loss / len(self.val_loader)
-        avg_dice = total_dice / len(self.val_loader)
-        avg_iou = total_iou / len(self.val_loader)
-        avg_f1 = total_f1 / len(self.val_loader)
+            prob_sum += prob.mean().item()
+            prob_max_sum += prob.amax(dim=(2, 3)).mean().item()
+            target_pos_ratio_sum += masks.mean().item()
+            pred_pos_ratio_sum += pred_mask.mean().item()
+
+        N = len(self.val_loader)
+        avg_loss = total_loss / N
+        avg_dice = total_dice / N
+        avg_iou = total_iou / N
+        avg_f1 = total_f1 / N
+        avg_prob = prob_sum / N
+        avg_prob_max = prob_max_sum / N
+        avg_target_pos = target_pos_ratio_sum / N
+        avg_pred_pos = pred_pos_ratio_sum / N
 
         self.writer.add_scalar("val/loss", avg_loss, epoch)
         self.writer.add_scalar("val/dice", avg_dice, epoch)
         self.writer.add_scalar("val/iou", avg_iou, epoch)
         self.writer.add_scalar("val/f1", avg_f1, epoch)
+        self.writer.add_scalar("diag/prob_mean", avg_prob, epoch)
+        self.writer.add_scalar("diag/prob_max", avg_prob_max, epoch)
+        self.writer.add_scalar("diag/target_pos_ratio", avg_target_pos, epoch)
+        self.writer.add_scalar("diag/pred_pos_ratio", avg_pred_pos, epoch)
+
+        # Stdout-friendly: spot collapse without opening tensorboard.
+        print(
+            f"  [diag] prob_mean={avg_prob:.3f}  prob_max={avg_prob_max:.3f}  "
+            f"target_pos={avg_target_pos:.3f}  pred_pos={avg_pred_pos:.3f}"
+        )
 
         return avg_loss, avg_dice, avg_iou, avg_f1
 
