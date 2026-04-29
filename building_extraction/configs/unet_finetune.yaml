@@ -18,10 +18,12 @@ data:
   patch_size: 512
 
 training:
-  epochs: 30
+  # epochs: 30
+  epochs: 15  # 精修15epoch
   batch_size: 16
   num_workers: 4
-  lr: 5.0e-5         # was 1e-4 — too aggressive; loss flat-lined at 1.06
+  # lr: 5.0e-5         # was 1e-4 — too aggressive; loss flat-lined at 1.06
+  lr: 2e-5  # 精修15epoch
   weight_decay: 0.01
   scheduler: "cosine"
   warmup_ratio: 0.1
@@ -33,7 +35,8 @@ loss:
   # interior. Keep it small until interior is solid, then ramp if needed.
   dice_weight: 1.0
   bce_weight: 1.0
-  boundary_weight: 0.3
+  # boundary_weight: 0.3
+  boundary_weight: 0.6 # 精修15epoch
   boundary_dilation: 3
 
 augmentation:
