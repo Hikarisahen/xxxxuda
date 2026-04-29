@@ -38,10 +38,12 @@ class Trainer:
             boundary_dilation=loss_cfg.get("boundary_dilation", 3),
         )
 
+        # Coerce to float — PyYAML parses scientific notation without a decimal
+        # point ("2e-5") as a *string*, which silently breaks the optimizer.
         self.optimizer = optim.AdamW(
             self.model.parameters(),
-            lr=config["training"]["lr"],
-            weight_decay=config["training"]["weight_decay"],
+            lr=float(config["training"]["lr"]),
+            weight_decay=float(config["training"]["weight_decay"]),
         )
 
         # Single warmup-then-cosine over the full training run.
