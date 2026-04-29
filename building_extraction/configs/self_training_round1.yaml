@@ -1,0 +1,58 @@
+# Self-training round 1: Vaihingen GT + Potsdam pseudo-labels (mixed),
+# warm-started from the source-domain model.
+#
+# Why these settings:
+#   * Mixed batches keep Vaihingen GT in the loop so we don't catastrophically
+#     forget the clean contour signal while learning from noisy pseudo-labels.
+#   * Lower LR (1e-5) — we're refining a working model, not retraining.
+#   * Fewer epochs (10) — pseudo-labels are noisy; over-training on them
+#     amplifies their errors. Better to do 2-3 short rounds with regenerated
+#     pseudo-labels than one long round.
+#   * boundary_weight stays low (0.3) — high boundary weight + noisy labels =
+#     model learns the noise's edges. Crank this back up only when clean.
+
+model:
+  arch: "smp_unet"
+  encoder_name: "tu-convnext_base"
+  encoder_weights: "imagenet"
+  num_classes: 1
+
+data:
+  # Source-domain GT (Vaihingen) — keeps the model honest.
+  train_images: "data/train_images"
+  train_masks: "data/pseudo_labels"
+  # Target-domain pseudo-labels (Potsdam) — produced by generate_pseudo_labels_seg.py.
+  extra_train:
+    - images: "data/potsdam_pseudo_images"
+      masks: "data/potsdam_pseudo_masks"
+  val_images: "data/val_images"
+  val_masks: "data/pseudo_labels_val"
+  image_size: 512
+  patch_size: 512
+
+training:
+  epochs: 10
+  batch_size: 16
+  num_workers: 4
+  lr: 1.0e-5
+  weight_decay: 0.01
+  scheduler: "cosine"
+  warmup_ratio: 0.1
+
+loss:
+  dice_weight: 1.0
+  bce_weight: 1.0
+  boundary_weight: 0.3
+  boundary_dilation: 3
+
+augmentation:
+  horizontal_flip: 0.5
+  vertical_flip: 0.5
+  rotation_degrees: 15
+  scale_range: [0.8, 1.2]
+  brightness_limit: 0.1
+  contrast_limit: 0.1
+
+output:
+  checkpoint_dir: "checkpoints/unet_st_r1"
+  log_dir: "logs/unet_st_r1"

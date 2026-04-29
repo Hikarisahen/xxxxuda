@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import ConcatDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import yaml
 from tqdm import tqdm
@@ -239,6 +239,25 @@ def main(args):
         image_size=config["data"]["image_size"],
         transform=train_transform,
     )
+
+    # Optional: mix in target-domain pseudo-labels for self-training. The
+    # YAML lists pairs of (image_dir, mask_dir) under data.extra_train; each
+    # one is built as another SatellitePatchDataset and ConcatDataset-ed in.
+    extra = config["data"].get("extra_train") or []
+    if isinstance(extra, dict):
+        extra = [extra]
+    extra_datasets = []
+    for entry in extra:
+        ds = SatellitePatchDataset(
+            image_dir=entry["images"],
+            mask_dir=entry["masks"],
+            image_size=config["data"]["image_size"],
+            transform=train_transform,
+        )
+        print(f"  extra train source: {entry['images']}  ({len(ds)} samples)")
+        extra_datasets.append(ds)
+    if extra_datasets:
+        train_dataset = ConcatDataset([train_dataset, *extra_datasets])
 
     val_dataset = SatellitePatchDataset(
         image_dir=config["data"]["val_images"],
