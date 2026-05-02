@@ -16,7 +16,11 @@
       "Bash(python src/data/convert_vaihingen_to_coco.py --image-dir /home/zfx/datasets/Vaihingen_croped/train/Images --mask-dir /home/zfx/datasets/Vaihingen_croped/train/Labels --output annotations/vaihingen_coco.json)",
       "Bash(python scripts/train_detectron2.py --train-annotation-file annotations/vaihingen_train_coco.json --val-annotation-file annotations/vaihingen_val_coco.json --output-dir output/detectron2 --max-iter 1000 --eval-period 500)",
       "Bash(python -c \"import torch; print\\(torch.__version__\\)\")",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('scripts/postprocess_plan_a.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "PowerShell(python -c \"import ast; ast.parse\\(open\\('building_extraction/scripts/postprocess_plan_a.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "PowerShell($file = \"building_extraction\\\\scripts\\\\postprocess_plan_a.py\"; python -c \"import ast; ast.parse\\(open\\(r'$file', encoding='utf-8'\\).read\\(\\)\\); print\\('SYNTAX OK'\\)\")",
+      "PowerShell(python --version)"
     ]
   }
 }
