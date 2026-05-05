@@ -32,8 +32,8 @@ data:
   val_ann_file: "annotations/vaihingen_val_coco.json"
   val_image_dir: "data/val_images"
   extra_train:
-    - ann_file: "data/potsdam_pseudo_coco.json"
-      image_dir: "data/potsdam_pseudo_images"
+    - ann_file: "data/potsdam_maskrcnn_pseudo_coco.json"
+      image_dir: "data/potsdam_maskrcnn_pseudo_images"
 
 training:
   epochs: 6

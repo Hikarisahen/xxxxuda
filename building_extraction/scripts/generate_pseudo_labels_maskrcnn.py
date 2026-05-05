@@ -49,16 +49,25 @@ def parse_args():
     p.add_argument("--score-thresh", type=float, default=0.85)
     p.add_argument("--mask-binarise-thresh", type=float, default=0.5)
     p.add_argument("--min-area", type=int, default=300)
-    p.add_argument("--max-area", type=int, default=50000,
-                   help="Drop instances larger than this many pixels. Vaihingen "
-                        "→ Potsdam baseline tends to fill huge plazas with one "
-                        "giant 'building' (score ~1.00). 50k is ~20%% of a 512² "
-                        "tile, well above any real single building.")
-    p.add_argument("--max-coverage", type=float, default=0.40,
+    p.add_argument("--max-area", type=int, default=30000,
+                   help="Drop instances larger than this many pixels. Real "
+                        "Potsdam buildings at 5cm GSD rarely exceed ~30k px "
+                        "in a 512² tile. Was 50000 — too lenient, plaza-sized "
+                        "false positives slipped through.")
+    p.add_argument("--max-coverage", type=float, default=0.25,
                    help="Drop instances whose mask covers more than this "
-                        "fraction of the tile. Catches the 'one instance "
-                        "fills the whole image' failure mode that score "
-                        "thresholding misses.")
+                        "fraction of the tile. Was 0.40 — too lenient.")
+    p.add_argument("--min-solidity", type=float, default=0.85,
+                   help="Drop instances whose mask has solidity (area/"
+                        "convex_hull_area) below this. Real rectangular "
+                        "rooftops are >0.9; irregular vegetation/plaza blobs "
+                        "drop below ~0.8. Set 0 to disable.")
+    p.add_argument("--max-vegetation-ratio", type=float, default=0.50,
+                   help="IRRG-only sanity check: drop the instance if the "
+                        "fraction of pixels inside the mask where R > 1.3*G "
+                        "(NIR strongly above visible red, i.e. vegetation) "
+                        "exceeds this. Set 1.0 to disable. Useful only on "
+                        "IRRG imagery; harmless on RGB.")
     p.add_argument("--aspect-ratio-range", type=float, nargs=2, default=(0.2, 5.0),
                    metavar=("MIN", "MAX"))
     p.add_argument("--min-instances-per-tile", type=int, default=1)
@@ -84,9 +93,40 @@ def load_model(config_path: str, checkpoint_path: str, device: str):
     return model.to(device).eval()
 
 
-def filter_instances(out: dict, score_thresh: float, mask_thresh: float,
+def _vegetation_ratio_irrg(mask: np.ndarray, img: np.ndarray) -> float:
+    """Fraction of mask pixels where R > 1.3*G in IRRG (vegetation signature).
+
+    In IRRG channel mapping: R=NIR, G=visible-red, B=visible-green. Vegetation
+    has very high NIR, so R is much greater than G. Bare rooftops have roughly
+    balanced channels. A high ratio inside a 'building' mask means the model
+    confidently outlined a vegetation patch.
+    """
+    sel = mask.astype(bool)
+    if not sel.any():
+        return 0.0
+    r = img[..., 0].astype(np.float32)
+    g = img[..., 1].astype(np.float32)
+    veg_pixels = (r > 1.3 * (g + 1e-6))[sel]
+    return float(veg_pixels.mean())
+
+
+def _solidity(contour) -> float:
+    area = float(cv2.contourArea(contour))
+    if area <= 0:
+        return 0.0
+    hull = cv2.convexHull(contour)
+    hull_area = float(cv2.contourArea(hull))
+    if hull_area <= 0:
+        return 0.0
+    return area / hull_area
+
+
+def filter_instances(out: dict, img: np.ndarray,
+                     score_thresh: float, mask_thresh: float,
                      min_area: int, max_area: int,
                      max_coverage: float,
+                     min_solidity: float,
+                     max_vegetation_ratio: float,
                      ar_min: float, ar_max: float,
                      tile_pixels: int) -> List[Dict]:
     records: List[Dict] = []
@@ -102,17 +142,30 @@ def filter_instances(out: dict, score_thresh: float, mask_thresh: float,
             continue
         m = (masks_soft[i, 0] > mask_thresh).astype(np.uint8)
 
-        # Whole-mask coverage check first — we reject the instance even if
-        # its outer contour might split into multiple pieces below.
+        # 1) Coverage check — kills the "single instance fills most of tile" failure.
         instance_pixels = int(m.sum())
         if tile_pixels > 0 and instance_pixels / tile_pixels > max_coverage:
             continue
+
+        # 2) Vegetation-content check (IRRG-aware). Catches blobs that stray
+        #    into red-ish vegetation patches even if their shape is plausible.
+        if max_vegetation_ratio < 1.0:
+            veg_ratio = _vegetation_ratio_irrg(m, img)
+            if veg_ratio > max_vegetation_ratio:
+                continue
 
         contours, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for c in contours:
             area = float(cv2.contourArea(c))
             if area < min_area or area > max_area:
                 continue
+
+            # 3) Solidity — rectangular roofs are >0.9, ragged plaza/veg blobs drop below ~0.8.
+            if min_solidity > 0:
+                sol = _solidity(c)
+                if sol < min_solidity:
+                    continue
+
             x, y, w, h = cv2.boundingRect(c)
             if w <= 0 or h <= 0:
                 continue
@@ -162,8 +215,10 @@ def main():
             x = x.to(args.device)
             out = model([x])[0]
             records = filter_instances(
-                out, args.score_thresh, args.mask_binarise_thresh,
+                out, img,
+                args.score_thresh, args.mask_binarise_thresh,
                 args.min_area, args.max_area, args.max_coverage,
+                args.min_solidity, args.max_vegetation_ratio,
                 ar_min, ar_max, tile_pixels=H * W,
             )
             if len(records) < args.min_instances_per_tile:
@@ -215,10 +270,12 @@ def main():
     summary = [
         f"Source ckpt   : {args.checkpoint}",
         f"Image dir     : {args.image_dir}",
-        f"Score thresh  : {args.score_thresh}",
-        f"Area band     : [{args.min_area}, {args.max_area}]",
-        f"Max coverage  : {args.max_coverage} (fraction of tile)",
-        f"Aspect-ratio  : [{ar_min}, {ar_max}]",
+        f"Score thresh   : {args.score_thresh}",
+        f"Area band      : [{args.min_area}, {args.max_area}]",
+        f"Max coverage   : {args.max_coverage} (fraction of tile)",
+        f"Min solidity   : {args.min_solidity}",
+        f"Max veg ratio  : {args.max_vegetation_ratio} (IRRG R>1.3*G fraction)",
+        f"Aspect-ratio   : [{ar_min}, {ar_max}]",
         f"Min instances per kept tile: {args.min_instances_per_tile}",
         "",
         f"Tiles processed : {len(paths)}",
