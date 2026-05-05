@@ -51,7 +51,14 @@ def parse_args():
     p.add_argument("--image-dir", required=True, type=Path)
     p.add_argument("--mask-dir", type=Path, default=None,
                    help="Optional: directory of <stem>_mask.png GT/pseudo-label "
-                        "binary masks. If given, GT contours are drawn in cyan.")
+                        "BINARY UNION masks. Adjacent buildings show as one "
+                        "merged contour (union mask loses instance boundaries). "
+                        "Prefer --gt-coco for per-instance contours.")
+    p.add_argument("--gt-coco", type=Path, default=None,
+                   help="Optional: path to a COCO JSON whose images[] file_name "
+                        "matches the input tiles. Each annotation's polygon is "
+                        "drawn separately in cyan, so adjacent buildings show "
+                        "as distinct contours (the correct GT visualisation).")
     p.add_argument("--out-dir", required=True, type=Path)
     p.add_argument("--limit", type=int, default=20)
     p.add_argument("--score-thresh", type=float, default=0.5)
@@ -101,6 +108,31 @@ def gt_contour_panel(img: np.ndarray, gt_mask: Optional[np.ndarray]) -> np.ndarr
     return out
 
 
+def gt_contour_panel_from_coco(img: np.ndarray, polygons: list) -> np.ndarray:
+    """Draw each GT polygon separately so adjacent instances stay distinct."""
+    out = img.copy()
+    for poly in polygons:
+        if len(poly) < 6:
+            continue
+        pts = np.array(poly, dtype=np.int32).reshape(-1, 2)
+        cv2.polylines(out, [pts], isClosed=True, color=(0, 255, 255), thickness=2)
+    return out
+
+
+def build_coco_polygon_index(coco_path: Path) -> dict:
+    """Map file_name -> list of polygon point lists for that image."""
+    import json as _json
+    with open(coco_path) as f:
+        coco = _json.load(f)
+    file_to_id = {img["file_name"]: img["id"] for img in coco.get("images", [])}
+    by_id: dict = {}
+    for ann in coco.get("annotations", []):
+        for seg in ann.get("segmentation", []) or []:
+            if isinstance(seg, list) and len(seg) >= 6:
+                by_id.setdefault(ann["image_id"], []).append(seg)
+    return {fn: by_id.get(iid, []) for fn, iid in file_to_id.items()}
+
+
 def load_gt_mask(mask_dir: Optional[Path], stem: str, shape: tuple) -> Optional[np.ndarray]:
     if mask_dir is None:
         return None
@@ -138,6 +170,12 @@ def main():
     print(f"Loading model: {args.checkpoint}")
     model = load_model(args.config, args.checkpoint, args.device)
 
+    # If a GT COCO is supplied, build a (file_name -> polygons) lookup once.
+    gt_polygons_by_name: dict = {}
+    if args.gt_coco is not None:
+        print(f"Loading GT COCO: {args.gt_coco}")
+        gt_polygons_by_name = build_coco_polygon_index(args.gt_coco)
+
     paths = sorted(
         list(args.image_dir.glob("*.tif")) + list(args.image_dir.glob("*.tiff"))
         + list(args.image_dir.glob("*.png")) + list(args.image_dir.glob("*.jpg"))
@@ -174,10 +212,17 @@ def main():
                 score_means.append(float(scores.mean()))
 
             inst_panel, overlay_panel = render_instances(img, masks, bboxes, scores)
-            gt_mask = load_gt_mask(args.mask_dir, ip.stem, (H, W))
             panels = [img, inst_panel, overlay_panel]
-            if gt_mask is not None:
-                panels.append(gt_contour_panel(img, gt_mask))
+
+            # Prefer per-instance COCO GT (adjacent buildings stay distinct);
+            # fall back to the SemSeg-style union-mask file if only --mask-dir.
+            if gt_polygons_by_name:
+                polys = gt_polygons_by_name.get(ip.name, [])
+                panels.append(gt_contour_panel_from_coco(img, polys))
+            else:
+                gt_mask = load_gt_mask(args.mask_dir, ip.stem, (H, W))
+                if gt_mask is not None:
+                    panels.append(gt_contour_panel(img, gt_mask))
 
             panels = [cv2.resize(p, (W, H), interpolation=cv2.INTER_LINEAR) for p in panels]
             grid = np.concatenate(panels, axis=1)
