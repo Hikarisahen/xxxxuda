@@ -8,11 +8,11 @@
 #          --config configs/maskrcnn/maskrcnn_vaihingen.yaml \
 #          --checkpoint checkpoints/maskrcnn_vaihingen/best.pt \
 #          --image-dir /home/zfx/datasets/Potsdam/IRRG_512 \
-#          --out-image-dir building_extraction/data/potsdam_pseudo_images \
-#          --out-coco     building_extraction/data/potsdam_pseudo_coco.json
+#          --out-image-dir data/potsdam_pseudo_images \
+#          --out-coco     data/potsdam_pseudo_coco.json
 #   3. python -m src.training.train_maskrcnn \
 #          --config configs/maskrcnn/maskrcnn_st_round1.yaml \
-#          --resume-from building_extraction/checkpoints/maskrcnn_vaihingen/best.pt
+#          --resume-from checkpoints/maskrcnn_vaihingen/best.pt
 #
 # Why these settings:
 #   * mixed batches keep Vaihingen GT in every epoch -> anchors the model
@@ -27,13 +27,13 @@ model:
   trainable_backbone_layers: 3
 
 data:
-  train_ann_file: "building_extraction/annotations/vaihingen_train_coco.json"
-  train_image_dir: "building_extraction/data/train_images"
-  val_ann_file: "building_extraction/annotations/vaihingen_val_coco.json"
-  val_image_dir: "building_extraction/data/val_images"
+  train_ann_file: "annotations/vaihingen_train_coco.json"
+  train_image_dir: "data/train_images"
+  val_ann_file: "annotations/vaihingen_val_coco.json"
+  val_image_dir: "data/val_images"
   extra_train:
-    - ann_file: "building_extraction/data/potsdam_pseudo_coco.json"
-      image_dir: "building_extraction/data/potsdam_pseudo_images"
+    - ann_file: "data/potsdam_pseudo_coco.json"
+      image_dir: "data/potsdam_pseudo_images"
 
 training:
   epochs: 6
@@ -54,5 +54,5 @@ inference:
   max_detections: 200
 
 output:
-  checkpoint_dir: "building_extraction/checkpoints/maskrcnn_st_r1"
-  log_dir: "building_extraction/logs/maskrcnn_st_r1"
+  checkpoint_dir: "checkpoints/maskrcnn_st_r1"
+  log_dir: "logs/maskrcnn_st_r1"

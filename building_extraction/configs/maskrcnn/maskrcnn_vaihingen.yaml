@@ -1,5 +1,6 @@
 # torchvision Mask R-CNN — Vaihingen source-domain training.
-# Run from the project root:
+# Run from the building_extraction/ directory:
+#   cd building_extraction
 #   python -m src.training.train_maskrcnn --config configs/maskrcnn/maskrcnn_vaihingen.yaml
 
 model:
@@ -10,10 +11,10 @@ model:
   trainable_backbone_layers: 3   # 0..5; 3 is the torchvision default for transfer
 
 data:
-  train_ann_file: "building_extraction/annotations/vaihingen_train_coco.json"
-  train_image_dir: "building_extraction/data/train_images"
-  val_ann_file: "building_extraction/annotations/vaihingen_val_coco.json"
-  val_image_dir: "building_extraction/data/val_images"
+  train_ann_file: "annotations/vaihingen_train_coco.json"
+  train_image_dir: "data/train_images"
+  val_ann_file: "annotations/vaihingen_val_coco.json"
+  val_image_dir: "data/val_images"
   # Optional: list of {ann_file, image_dir} pairs to ConcatDataset onto the
   # source training set (used by self-training rounds — leave empty here).
   extra_train: []
@@ -37,5 +38,5 @@ inference:
   max_detections: 200
 
 output:
-  checkpoint_dir: "building_extraction/checkpoints/maskrcnn_vaihingen"
-  log_dir: "building_extraction/logs/maskrcnn_vaihingen"
+  checkpoint_dir: "checkpoints/maskrcnn_vaihingen"
+  log_dir: "logs/maskrcnn_vaihingen"
