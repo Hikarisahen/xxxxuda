@@ -49,7 +49,16 @@ def parse_args():
     p.add_argument("--score-thresh", type=float, default=0.85)
     p.add_argument("--mask-binarise-thresh", type=float, default=0.5)
     p.add_argument("--min-area", type=int, default=300)
-    p.add_argument("--max-area", type=int, default=300000)
+    p.add_argument("--max-area", type=int, default=50000,
+                   help="Drop instances larger than this many pixels. Vaihingen "
+                        "→ Potsdam baseline tends to fill huge plazas with one "
+                        "giant 'building' (score ~1.00). 50k is ~20%% of a 512² "
+                        "tile, well above any real single building.")
+    p.add_argument("--max-coverage", type=float, default=0.40,
+                   help="Drop instances whose mask covers more than this "
+                        "fraction of the tile. Catches the 'one instance "
+                        "fills the whole image' failure mode that score "
+                        "thresholding misses.")
     p.add_argument("--aspect-ratio-range", type=float, nargs=2, default=(0.2, 5.0),
                    metavar=("MIN", "MAX"))
     p.add_argument("--min-instances-per-tile", type=int, default=1)
@@ -77,7 +86,9 @@ def load_model(config_path: str, checkpoint_path: str, device: str):
 
 def filter_instances(out: dict, score_thresh: float, mask_thresh: float,
                      min_area: int, max_area: int,
-                     ar_min: float, ar_max: float) -> List[Dict]:
+                     max_coverage: float,
+                     ar_min: float, ar_max: float,
+                     tile_pixels: int) -> List[Dict]:
     records: List[Dict] = []
     if len(out["scores"]) == 0:
         return records
@@ -90,6 +101,13 @@ def filter_instances(out: dict, score_thresh: float, mask_thresh: float,
         if scores[i] < score_thresh or labels[i] != 1:
             continue
         m = (masks_soft[i, 0] > mask_thresh).astype(np.uint8)
+
+        # Whole-mask coverage check first — we reject the instance even if
+        # its outer contour might split into multiple pieces below.
+        instance_pixels = int(m.sum())
+        if tile_pixels > 0 and instance_pixels / tile_pixels > max_coverage:
+            continue
+
         contours, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for c in contours:
             area = float(cv2.contourArea(c))
@@ -145,7 +163,8 @@ def main():
             out = model([x])[0]
             records = filter_instances(
                 out, args.score_thresh, args.mask_binarise_thresh,
-                args.min_area, args.max_area, ar_min, ar_max,
+                args.min_area, args.max_area, args.max_coverage,
+                ar_min, ar_max, tile_pixels=H * W,
             )
             if len(records) < args.min_instances_per_tile:
                 n_skipped += 1
@@ -198,6 +217,7 @@ def main():
         f"Image dir     : {args.image_dir}",
         f"Score thresh  : {args.score_thresh}",
         f"Area band     : [{args.min_area}, {args.max_area}]",
+        f"Max coverage  : {args.max_coverage} (fraction of tile)",
         f"Aspect-ratio  : [{ar_min}, {ar_max}]",
         f"Min instances per kept tile: {args.min_instances_per_tile}",
         "",
