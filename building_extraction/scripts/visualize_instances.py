@@ -1,32 +1,30 @@
 #!/usr/bin/env python3
-"""Per-instance visualisation of an mmdet Mask R-CNN model.
+"""Per-instance visualisation of a trained torchvision Mask R-CNN model.
 
-Layout per saved grid (4 panels):
-    [original | per-instance coloured masks | overlay (img + masks + bboxes) | GT contours]
+Layout per saved grid (3 or 4 panels):
+    [original | per-instance coloured masks | overlay (img + masks + bbox)]
+    + GT contours panel if --mask-dir is supplied (Vaihingen val use case)
 
-The 4th panel is only drawn when --mask-dir is given (i.e. you have ground
-truth or pseudo-labels for the same tile). For unlabelled target-domain
-images, omit --mask-dir and the script saves a 3-panel grid.
-
-Each instance gets a deterministic random colour seeded from its index in the
-prediction list, so the same tile renders the same way across runs.
+Each instance gets a deterministic colour seeded from its index in the
+prediction list.
 
 CLI examples:
 
   # Vaihingen val (with GT contours)
   python scripts/visualize_instances.py \
-      --config configs/mmdet/mask_rcnn_vaihingen.py \
-      --checkpoint checkpoints/mmdet_vaihingen/best_segm_mAP.pth \
+      --config configs/maskrcnn/maskrcnn_vaihingen.yaml \
+      --checkpoint checkpoints/maskrcnn_vaihingen/best.pt \
       --image-dir data/val_images \
       --mask-dir  data/pseudo_labels_val \
-      --out-dir   visualisations_mmdet_vaihingen --limit 20
+      --out-dir   visualisations_maskrcnn_vaihingen --limit 20
 
   # Potsdam (no GT)
   python scripts/visualize_instances.py \
-      --config configs/mmdet/mask_rcnn_vaihingen.py \
-      --checkpoint checkpoints/mmdet_vaihingen/best_segm_mAP.pth \
+      --config configs/maskrcnn/maskrcnn_vaihingen.yaml \
+      --checkpoint checkpoints/maskrcnn_vaihingen/best.pt \
       --image-dir /home/zfx/datasets/Potsdam/IRRG_512 \
-      --out-dir   visualisations_mmdet_potsdam_baseline --limit 30 --seed 0
+      --out-dir   visualisations_maskrcnn_potsdam_baseline \
+      --limit 30 --seed 0
 """
 import argparse
 import random
@@ -36,8 +34,14 @@ from typing import List, Optional
 import cv2
 import numpy as np
 import torch
+import yaml
 from PIL import Image
 from tqdm import tqdm
+
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.training.train_maskrcnn import build_model
 
 
 def parse_args():
@@ -51,6 +55,7 @@ def parse_args():
     p.add_argument("--out-dir", required=True, type=Path)
     p.add_argument("--limit", type=int, default=20)
     p.add_argument("--score-thresh", type=float, default=0.5)
+    p.add_argument("--mask-binarise-thresh", type=float, default=0.5)
     p.add_argument("--seed", type=int, default=0,
                    help="Sampling seed so the same N images are picked across runs.")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -58,52 +63,35 @@ def parse_args():
 
 
 def color_for_index(i: int) -> tuple:
-    """Deterministic distinct-ish colour per instance."""
     rng = random.Random(int(i) * 9973 + 17)
-    # Bias away from pure white/black by clamping each channel to [60, 240].
     return (rng.randint(60, 240), rng.randint(60, 240), rng.randint(60, 240))
 
 
 def render_instances(img: np.ndarray, masks: np.ndarray, bboxes: np.ndarray,
-                     scores: np.ndarray, draw_bboxes: bool) -> tuple:
-    """Return (instance_panel, overlay_panel) — both H x W x 3 uint8.
-
-    instance_panel: black canvas, each mask filled with its colour.
-    overlay_panel : original image with masks blended + thin contour + bboxes.
-    """
-    H, W = img.shape[:2]
+                     scores: np.ndarray) -> tuple:
+    """Return (instance_panel, overlay_panel)."""
     inst = np.zeros_like(img)
     overlay = img.copy()
-
     for i in range(len(masks)):
         m = masks[i].astype(np.uint8)
         if m.sum() == 0:
             continue
         col = color_for_index(i)
         col_arr = np.array(col, dtype=np.uint8)
-
-        # Solid colour panel
-        inst[m.astype(bool)] = col_arr
-
-        # Blended overlay (50/50)
         sel = m.astype(bool)
+        inst[sel] = col_arr
         overlay[sel] = (0.5 * overlay[sel] + 0.5 * col_arr).astype(np.uint8)
-
-        # Crisp contour line on the overlay
         contours, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         cv2.drawContours(overlay, contours, -1, col, thickness=2)
-
-        if draw_bboxes:
-            x1, y1, x2, y2 = bboxes[i].astype(int)
-            cv2.rectangle(overlay, (x1, y1), (x2, y2), col, 1)
-            label = f"{scores[i]:.2f}"
-            cv2.putText(overlay, label, (x1 + 2, max(12, y1 - 3)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, col, 1, cv2.LINE_AA)
-
+        x1, y1, x2, y2 = bboxes[i].astype(int)
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), col, 1)
+        label = f"{scores[i]:.2f}"
+        cv2.putText(overlay, label, (x1 + 2, max(12, y1 - 3)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, col, 1, cv2.LINE_AA)
     return inst, overlay
 
 
-def gt_contour_panel(img: np.ndarray, gt_mask: np.ndarray) -> np.ndarray:
+def gt_contour_panel(img: np.ndarray, gt_mask: Optional[np.ndarray]) -> np.ndarray:
     out = img.copy()
     if gt_mask is None or gt_mask.sum() == 0:
         return out
@@ -126,14 +114,29 @@ def load_gt_mask(mask_dir: Optional[Path], stem: str, shape: tuple) -> Optional[
     return None
 
 
+def load_model(config_path: str, checkpoint_path: str, device: str):
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+    model_cfg = cfg["model"]
+    model = build_model(
+        num_classes=model_cfg.get("num_classes", 1),
+        variant=model_cfg.get("variant", "v2"),
+        pretrained=False,
+        trainable_backbone_layers=int(model_cfg.get("trainable_backbone_layers", 3)),
+    )
+    sd = torch.load(checkpoint_path, map_location="cpu")
+    if "model_state_dict" in sd:
+        sd = sd["model_state_dict"]
+    model.load_state_dict(sd, strict=False)
+    return model.to(device).eval()
+
+
 def main():
     args = parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    from mmdet.apis import init_detector, inference_detector
-
     print(f"Loading model: {args.checkpoint}")
-    model = init_detector(args.config, args.checkpoint, device=args.device)
+    model = load_model(args.config, args.checkpoint, args.device)
 
     paths = sorted(
         list(args.image_dir.glob("*.tif")) + list(args.image_dir.glob("*.tiff"))
@@ -148,38 +151,37 @@ def main():
     n_inst_per_img: List[int] = []
     score_means: List[float] = []
 
-    for ip in tqdm(paths, desc="Visualise"):
-        img = np.array(Image.open(ip).convert("RGB"))
-        H, W = img.shape[:2]
+    with torch.no_grad():
+        for ip in tqdm(paths, desc="Visualise"):
+            img = np.array(Image.open(ip).convert("RGB"))
+            H, W = img.shape[:2]
 
-        result = inference_detector(model, img)
-        pred = result.pred_instances
-        keep = pred.scores >= args.score_thresh
-        scores = pred.scores[keep].cpu().numpy()
-        labels = pred.labels[keep].cpu().numpy()
-        bboxes = pred.bboxes[keep].cpu().numpy()
-        masks = pred.masks[keep].cpu().numpy()
+            x = torch.from_numpy(img).permute(2, 0, 1).contiguous().float().div_(255.0)
+            x = x.to(args.device)
+            out = model([x])[0]
 
-        # Restrict to building class
-        bld = labels == 0
-        scores, bboxes, masks = scores[bld], bboxes[bld], masks[bld]
+            scores = out["scores"].cpu().numpy()
+            labels = out["labels"].cpu().numpy()
+            bboxes = out["boxes"].cpu().numpy()
+            masks_soft = out["masks"].cpu().numpy()  # [N, 1, H, W] float
 
-        n_inst_per_img.append(len(scores))
-        if len(scores):
-            score_means.append(float(scores.mean()))
+            keep = (scores >= args.score_thresh) & (labels == 1)
+            scores, bboxes, masks_soft = scores[keep], bboxes[keep], masks_soft[keep]
+            masks = (masks_soft[:, 0] > args.mask_binarise_thresh).astype(np.uint8)
 
-        inst_panel, overlay_panel = render_instances(img, masks, bboxes, scores,
-                                                     draw_bboxes=True)
+            n_inst_per_img.append(len(scores))
+            if len(scores):
+                score_means.append(float(scores.mean()))
 
-        gt_mask = load_gt_mask(args.mask_dir, ip.stem, (H, W))
-        panels = [img, inst_panel, overlay_panel]
-        if gt_mask is not None:
-            panels.append(gt_contour_panel(img, gt_mask))
+            inst_panel, overlay_panel = render_instances(img, masks, bboxes, scores)
+            gt_mask = load_gt_mask(args.mask_dir, ip.stem, (H, W))
+            panels = [img, inst_panel, overlay_panel]
+            if gt_mask is not None:
+                panels.append(gt_contour_panel(img, gt_mask))
 
-        # Resize defensively (all are H x W already, but keep_ratio false-positive)
-        panels = [cv2.resize(p, (W, H), interpolation=cv2.INTER_LINEAR) for p in panels]
-        grid = np.concatenate(panels, axis=1)
-        Image.fromarray(grid).save(args.out_dir / f"{ip.stem}_grid.png")
+            panels = [cv2.resize(p, (W, H), interpolation=cv2.INTER_LINEAR) for p in panels]
+            grid = np.concatenate(panels, axis=1)
+            Image.fromarray(grid).save(args.out_dir / f"{ip.stem}_grid.png")
 
     n = np.array(n_inst_per_img)
     sm = np.array(score_means) if score_means else np.zeros(1)

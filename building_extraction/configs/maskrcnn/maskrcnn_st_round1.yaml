@@ -1,0 +1,58 @@
+# Mask R-CNN self-training round 1: Vaihingen GT + Potsdam pseudo-labels.
+#
+# Pre-flight:
+#   1. Train the source model with configs/maskrcnn/maskrcnn_vaihingen.yaml ->
+#      checkpoints/maskrcnn_vaihingen/best.pt
+#   2. Generate pseudo-labels:
+#      python scripts/generate_pseudo_labels_maskrcnn.py \
+#          --config configs/maskrcnn/maskrcnn_vaihingen.yaml \
+#          --checkpoint checkpoints/maskrcnn_vaihingen/best.pt \
+#          --image-dir /home/zfx/datasets/Potsdam/IRRG_512 \
+#          --out-image-dir building_extraction/data/potsdam_pseudo_images \
+#          --out-coco     building_extraction/data/potsdam_pseudo_coco.json
+#   3. python -m src.training.train_maskrcnn \
+#          --config configs/maskrcnn/maskrcnn_st_round1.yaml \
+#          --resume-from building_extraction/checkpoints/maskrcnn_vaihingen/best.pt
+#
+# Why these settings:
+#   * mixed batches keep Vaihingen GT in every epoch -> anchors the model
+#     against catastrophic forgetting on the source domain
+#   * lr is 1/4 of source training -> we're refining, not retraining
+#   * 6 epochs -> long enough to adapt, short enough to not overfit pseudo-noise
+
+model:
+  variant: "v2"
+  num_classes: 1
+  pretrained: false               # weights come from --resume-from
+  trainable_backbone_layers: 3
+
+data:
+  train_ann_file: "building_extraction/annotations/vaihingen_train_coco.json"
+  train_image_dir: "building_extraction/data/train_images"
+  val_ann_file: "building_extraction/annotations/vaihingen_val_coco.json"
+  val_image_dir: "building_extraction/data/val_images"
+  extra_train:
+    - ann_file: "building_extraction/data/potsdam_pseudo_coco.json"
+      image_dir: "building_extraction/data/potsdam_pseudo_images"
+
+training:
+  epochs: 6
+  batch_size: 4
+  num_workers: 4
+  lr: 1.25e-3
+  momentum: 0.9
+  weight_decay: 1.0e-4
+  warmup_iters: 100
+  warmup_factor: 0.01
+  lr_milestones: [4, 5]
+  lr_gamma: 0.1
+  grad_clip: 35.0
+
+inference:
+  score_thresh: 0.5
+  nms_iou: 0.5
+  max_detections: 200
+
+output:
+  checkpoint_dir: "building_extraction/checkpoints/maskrcnn_st_r1"
+  log_dir: "building_extraction/logs/maskrcnn_st_r1"

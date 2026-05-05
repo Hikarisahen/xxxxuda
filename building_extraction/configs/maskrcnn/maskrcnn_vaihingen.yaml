@@ -1,0 +1,41 @@
+# torchvision Mask R-CNN — Vaihingen source-domain training.
+# Run from the project root:
+#   python -m src.training.train_maskrcnn --config configs/maskrcnn/maskrcnn_vaihingen.yaml
+
+model:
+  # "v1" = R50-FPN, "v2" = R50-FPN with ConvNorm + 2-conv mask head (better contours).
+  variant: "v2"
+  num_classes: 1            # excludes background
+  pretrained: true          # start from torchvision's COCO-pretrained weights
+  trainable_backbone_layers: 3   # 0..5; 3 is the torchvision default for transfer
+
+data:
+  train_ann_file: "building_extraction/annotations/vaihingen_train_coco.json"
+  train_image_dir: "building_extraction/data/train_images"
+  val_ann_file: "building_extraction/annotations/vaihingen_val_coco.json"
+  val_image_dir: "building_extraction/data/val_images"
+  # Optional: list of {ann_file, image_dir} pairs to ConcatDataset onto the
+  # source training set (used by self-training rounds — leave empty here).
+  extra_train: []
+
+training:
+  epochs: 12
+  batch_size: 4             # detection models eat memory; tune per GPU
+  num_workers: 4
+  lr: 5.0e-3                # SGD, scaled for batch ~4 single-GPU
+  momentum: 0.9
+  weight_decay: 1.0e-4
+  warmup_iters: 200
+  warmup_factor: 0.001
+  lr_milestones: [8, 11]
+  lr_gamma: 0.1
+  grad_clip: 35.0           # match torchvision detection refs
+
+inference:
+  score_thresh: 0.5
+  nms_iou: 0.5
+  max_detections: 200
+
+output:
+  checkpoint_dir: "building_extraction/checkpoints/maskrcnn_vaihingen"
+  log_dir: "building_extraction/logs/maskrcnn_vaihingen"
