@@ -18,8 +18,8 @@ model:
 data:
   train_ann_file: "annotations/vaihingen_train_coco.json"
   train_image_dir: "data/train_images"
-  val_ann_file: "annotations/vaihingen_val_coco.json"
-  val_image_dir: "data/val_images"
+  val_ann_file: "annotations/potsdam_val_coco.json"
+  val_image_dir: "/home/zfx/datasets/Potsdam/IRRG_512"
   extra_train:
     - ann_file: "data/potsdam_maskrcnn_pseudo_r2_coco.json"
       image_dir: "data/potsdam_maskrcnn_pseudo_r2_images"
