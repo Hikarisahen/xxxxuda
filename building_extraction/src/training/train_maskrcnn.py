@@ -49,11 +49,18 @@ from src.data.maskrcnn_transforms import get_train_transforms, get_val_transform
 # ---------------------------------------------------------------------------
 def build_model(num_classes: int = 1, variant: str = "v2",
                 pretrained: bool = True,
-                trainable_backbone_layers: int = 3) -> torch.nn.Module:
+                trainable_backbone_layers: int = 3,
+                image_mean: Optional[list] = None,
+                image_std: Optional[list] = None) -> torch.nn.Module:
     """Build a torchvision Mask R-CNN with single-class heads.
 
     The torchvision API counts background as class 0, so we always pass
     num_classes + 1 to the model and let label==1 mean 'building'.
+
+    image_mean/image_std: if provided, override the GeneralizedRCNNTransform's
+        normalisation constants. Use this to inject IRRG-specific stats
+        computed by scripts/compute_channel_stats.py — the ImageNet RGB
+        defaults are a poor match for IRRG (R=NIR) input.
     """
     if variant == "v2":
         from torchvision.models.detection import (
@@ -83,6 +90,17 @@ def build_model(num_classes: int = 1, variant: str = "v2",
     in_feat_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
     hidden = 256
     model.roi_heads.mask_predictor = MaskRCNNPredictor(in_feat_mask, hidden, n_total)
+
+    # Override normalisation constants if provided. torchvision's default is
+    # ImageNet RGB ([0.485, 0.456, 0.406] / [0.229, 0.224, 0.225]); for IRRG
+    # input that's a poor match. Replace both transform.image_mean and
+    # transform.image_std atomically so they stay consistent.
+    if image_mean is not None:
+        model.transform.image_mean = list(image_mean)
+        print(f"  Overriding image_mean: {model.transform.image_mean}")
+    if image_std is not None:
+        model.transform.image_std = list(image_std)
+        print(f"  Overriding image_std:  {model.transform.image_std}")
     return model
 
 
@@ -252,6 +270,8 @@ def main():
         variant=model_cfg.get("variant", "v2"),
         pretrained=bool(model_cfg.get("pretrained", True)),
         trainable_backbone_layers=int(model_cfg.get("trainable_backbone_layers", 3)),
+        image_mean=model_cfg.get("image_mean"),
+        image_std=model_cfg.get("image_std"),
     )
     if args.resume_from:
         print(f"Warm-starting from {args.resume_from}")

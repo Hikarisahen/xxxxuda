@@ -99,15 +99,85 @@ class RandomColorJitter:
         return image, target
 
 
+class RandomRotation90:
+    """Rotate image + masks by k*90 degrees, k uniform in {0,1,2,3}.
+
+    Safe for nadir overhead imagery — rotation invariance approximately holds.
+    Combined with H/V flips this gives the full 8-element dihedral group, which
+    is the right symmetry for satellite tiles. Boxes are recomputed from the
+    rotated masks via torchvision.ops.masks_to_boxes (more robust than rotating
+    boxes directly, especially when k=1 or 3 swaps H<->W).
+    """
+    def __call__(self, image, target):
+        k = random.randint(0, 3)
+        if k == 0:
+            return image, target
+        image = torch.rot90(image, k=k, dims=(-2, -1))
+        masks = target.get("masks")
+        if masks is not None and masks.shape[0] > 0:
+            masks = torch.rot90(masks, k=k, dims=(-2, -1)).contiguous()
+            target["masks"] = masks
+            from torchvision.ops import masks_to_boxes
+            target["boxes"] = masks_to_boxes(masks)
+        return image, target
+
+
+class RandomGamma:
+    """Image-only gamma correction. Simulates exposure differences between
+    sensors / acquisition times — a meaningful axis of Vaihingen↔Potsdam
+    domain gap that plain brightness scaling doesn't cover."""
+    def __init__(self, gamma_range: tuple = (0.7, 1.4), prob: float = 0.5):
+        self.lo, self.hi = gamma_range
+        self.prob = prob
+
+    def __call__(self, image, target):
+        if random.random() < self.prob and isinstance(image, torch.Tensor):
+            g = random.uniform(self.lo, self.hi)
+            image = image.clamp(0, 1).pow(g)
+        return image, target
+
+
+class RandomGaussianBlur:
+    """Image-only Gaussian blur with random sigma. Helps the model tolerate
+    GSD / focus / atmospheric differences between domains."""
+    def __init__(self, sigma_range: tuple = (0.1, 1.5), kernel_size: int = 5,
+                 prob: float = 0.3):
+        self.lo, self.hi = sigma_range
+        self.k = kernel_size  # must be odd
+        self.prob = prob
+
+    def __call__(self, image, target):
+        if random.random() < self.prob and isinstance(image, torch.Tensor):
+            sigma = random.uniform(self.lo, self.hi)
+            from torchvision.transforms.functional import gaussian_blur
+            image = gaussian_blur(image, kernel_size=[self.k, self.k],
+                                  sigma=[sigma, sigma])
+        return image, target
+
+
 def get_train_transforms() -> Compose:
-    """Default training augmentation. Symmetric flips are safe for overhead
-    imagery (rotation invariance is approximately a property of nadir views).
+    """Stronger augmentation for cross-domain (Vaihingen → Potsdam) training.
+
+    Why this stack:
+      * H/V flip + 90° rotation: full dihedral group, the natural symmetry of
+        nadir overhead imagery — multiplies effective spatial diversity 8x.
+      * ColorJitter at 0.4 (was 0.1, basically a no-op): bridges the photometric
+        gap between the two sensors / acquisition conditions.
+      * RandomGamma: exposure shift axis ColorJitter doesn't cover.
+      * GaussianBlur (low prob): tolerance to GSD / focus differences.
+
+    The previous defaults were so weak they barely contributed; the source
+    model was effectively training without augmentation — a major reason
+    cross-domain generalisation was poor.
     """
     return Compose([
         ToTensor(),
         RandomHorizontalFlip(0.5),
         RandomVerticalFlip(0.5),
-        RandomColorJitter(0.1, 0.1, 0.1, prob=0.5),
+        RandomRotation90(),
+        RandomColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, prob=0.8),
+        RandomGamma(gamma_range=(0.7, 1.4), prob=0.5),
+        RandomGaussianBlur(sigma_range=(0.1, 1.5), kernel_size=5, prob=0.3),
     ])
 
 

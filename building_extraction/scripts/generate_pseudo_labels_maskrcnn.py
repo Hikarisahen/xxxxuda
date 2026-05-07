@@ -85,6 +85,8 @@ def load_model(config_path: str, checkpoint_path: str, device: str):
         variant=model_cfg.get("variant", "v2"),
         pretrained=False,
         trainable_backbone_layers=int(model_cfg.get("trainable_backbone_layers", 3)),
+        image_mean=model_cfg.get("image_mean"),
+        image_std=model_cfg.get("image_std"),
     )
     sd = torch.load(checkpoint_path, map_location="cpu")
     if "model_state_dict" in sd:
