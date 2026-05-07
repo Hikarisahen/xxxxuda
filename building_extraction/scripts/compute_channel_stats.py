@@ -65,7 +65,8 @@ def accumulate(paths: List[Path], n_channels: int):
     sum_c = np.zeros(n_channels, dtype=np.float64)
     sumsq_c = np.zeros(n_channels, dtype=np.float64)
     n_pixels = 0
-    for p in tqdm(paths, desc=f"  {p.parent.name if paths else ''}", leave=False):
+    desc = f"  {paths[0].parent.name}" if paths else ""
+    for p in tqdm(paths, desc=desc, leave=False):
         arr = np.array(Image.open(p))
         if arr.ndim == 2:
             arr = arr[..., None]
